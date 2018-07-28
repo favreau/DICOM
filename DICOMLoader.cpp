@@ -49,7 +49,7 @@ DICOMLoader::DICOMLoader(brayns::Scene& scene,
 
 std::set<std::string> DICOMLoader::getSupportedDataTypes()
 {
-    return {"dicom"};
+    return {"", "dicom", "dcm"};
 }
 
 DICOMImageDescriptors DICOMLoader::parseDICOMImagesData(
@@ -113,7 +113,8 @@ DICOMImageDescriptors DICOMLoader::parseDICOMImagesData(
                         {imageFileName,
                          {(unsigned int)es[0], (unsigned int)es[1]},
                          {(float)ipp[0], (float)ipp[1], (float)ipp[2]},
-                         {(float)ps[0], (float)ps[1]}});
+                         {(float)ps[0], (float)ps[1]},
+                         {}});
                 }
             }
 
@@ -126,9 +127,74 @@ DICOMImageDescriptors DICOMLoader::parseDICOMImagesData(
     return dicomImages;
 }
 
-brayns::ModelDescriptorPtr DICOMLoader::importFromFile(
-    const std::string& fileName, const size_t /*index*/,
-    const size_t /*defaultMaterial*/)
+DICOMImageDescriptor DICOMLoader::readDICOMFile(const std::string& fileName)
+{
+    DICOMImageDescriptor imageDescriptor;
+    DicomImage* image = new DicomImage(fileName.c_str());
+    if (image)
+    {
+        if (image->getStatus() != EIS_Normal)
+            throw std::runtime_error("Error: cannot load DICOM image from " +
+                                     fileName);
+        if (image->getInterData())
+        {
+            if (image->getInterData()->getRepresentation() != EPR_Sint16)
+                throw std::runtime_error(
+                    "Only 16bit volumes are currently supported");
+        }
+        else
+            throw std::runtime_error("Failed to identify image representation");
+
+        imageDescriptor.dimensions = {(unsigned int)image->getWidth(),
+                                      (unsigned int)image->getHeight()};
+        imageDescriptor.pixelSpacing = {1, 1};
+        const auto size =
+            imageDescriptor.dimensions.x() * imageDescriptor.dimensions.y();
+        imageDescriptor.buffer.resize(size);
+        image->getOutputData(imageDescriptor.buffer.data(),
+                             size * sizeof(uint16_t));
+        delete image;
+    }
+    return imageDescriptor;
+}
+
+brayns::ModelDescriptorPtr DICOMLoader::readFile(const std::string& fileName)
+{
+    DICOMImageDescriptor imageDescriptor = readDICOMFile(fileName);
+
+    // Data range
+    const brayns::Vector2f dataRange = {std::numeric_limits<uint16_t>::min(),
+                                        std::numeric_limits<uint16_t>::max()};
+
+    auto volume = _scene.createSharedDataVolume(
+        {imageDescriptor.dimensions.x(), imageDescriptor.dimensions.y(), 1},
+        {imageDescriptor.pixelSpacing.x(), imageDescriptor.pixelSpacing.y(), 1},
+        brayns::DataType::UINT16);
+    auto& volumeData = volume->getData();
+    volumeData.insert(volumeData.end(), imageDescriptor.buffer.begin(),
+                      imageDescriptor.buffer.end());
+    volume->setDataRange(dataRange);
+    volume->mapData();
+
+    // Create Model
+    auto model = _scene.createModel();
+    model->addVolume(volume);
+
+    brayns::Transformation transformation;
+    transformation.setRotationCenter(model->getBounds().getCenter());
+    brayns::ModelMetadata metaData = {
+        {"dimensions", to_string(imageDescriptor.dimensions)},
+        {"element-spacing", to_string(imageDescriptor.pixelSpacing)}};
+
+    auto modelDescriptor =
+        std::make_shared<brayns::ModelDescriptor>(std::move(model), fileName,
+                                                  metaData);
+    modelDescriptor->setTransformation(transformation);
+    return modelDescriptor;
+}
+
+brayns::ModelDescriptorPtr DICOMLoader::readDirectory(
+    const std::string& fileName)
 {
     std::string patientName;
     const auto& dicomImages = parseDICOMImagesData(fileName, patientName);
@@ -141,50 +207,30 @@ brayns::ModelDescriptorPtr DICOMLoader::importFromFile(
                                         std::numeric_limits<uint16_t>::max()};
 
     // Dimensions
-    brayns::Vector3ui dimensions = {dicomImages[0].size.x(),
-                                    dicomImages[0].size.y(),
+    brayns::Vector3ui dimensions = {dicomImages[0].dimensions.x(),
+                                    dicomImages[0].dimensions.y(),
                                     (unsigned int)dicomImages.size()};
 
     // Element spacing (if single image, assume that z pixel spacing is the
     // same as y
-    brayns::Vector3f spacing{dicomImages[0].pixelSpacing.x(),
-                             dicomImages[0].pixelSpacing.y(),
-                             dicomImages[0].pixelSpacing.y()};
+    brayns::Vector3f elementSpacing{dicomImages[0].pixelSpacing.x(),
+                                    dicomImages[0].pixelSpacing.y(),
+                                    dicomImages[0].pixelSpacing.y()};
     if (dicomImages.size() > 1)
-        spacing.z() = dicomImages[1].position.z() - dicomImages[0].position.z();
+        elementSpacing.z() =
+            dicomImages[1].position.z() - dicomImages[0].position.z();
 
     // Load images into volume
     updateProgress("Loading voxels ...", 1, 2);
 
-    auto volume = _scene.createSharedDataVolume(dimensions, spacing,
+    auto volume = _scene.createSharedDataVolume(dimensions, elementSpacing,
                                                 brayns::DataType::UINT16);
     auto& volumeData = volume->getData();
     for (const auto& dicomImage : dicomImages)
     {
-        DicomImage* dcmtkImage = new DicomImage(dicomImage.path.c_str());
-        if (!dcmtkImage)
-            throw std::runtime_error("Null pointer returned");
-
-        EI_Status imageStatus = dcmtkImage->getStatus();
-        if (imageStatus != EIS_Normal)
-            throw std::runtime_error("Error reading image " + dicomImage.path);
-
-        if (dcmtkImage->getInterData())
-        {
-            if (dcmtkImage->getInterData()->getRepresentation() != EPR_Sint16)
-                throw std::runtime_error(
-                    "Only 16bit volumes are currently supported");
-        }
-        else
-            throw std::runtime_error("Failed to identify image representation");
-
-        // Voxels
-        const auto size = dimensions.x() * dimensions.y();
-        std::vector<uint16_t> buffer(size);
-        dcmtkImage->getOutputData(buffer.data(), size * sizeof(uint16_t));
-
-        volumeData.insert(volumeData.end(), buffer.begin(), buffer.end());
-        delete dcmtkImage;
+        auto imageDescriptor = readDICOMFile(dicomImage.path);
+        volumeData.insert(volumeData.end(), imageDescriptor.buffer.begin(),
+                          imageDescriptor.buffer.end());
     }
     volume->setDataRange(dataRange);
     volume->mapData();
@@ -198,13 +244,24 @@ brayns::ModelDescriptorPtr DICOMLoader::importFromFile(
     transformation.setRotationCenter(model->getBounds().getCenter());
     brayns::ModelMetadata metaData = {{"patient-name", patientName},
                                       {"dimensions", to_string(dimensions)},
-                                      {"element-spacing", to_string(spacing)}};
+                                      {"element-spacing",
+                                       to_string(elementSpacing)}};
 
     auto modelDescriptor =
-        std::make_shared<brayns::ModelDescriptor>(std::move(model), "DICOM",
+        std::make_shared<brayns::ModelDescriptor>(std::move(model), "DICOMDIR",
                                                   metaData);
     modelDescriptor->setTransformation(transformation);
     return modelDescriptor;
+}
+
+brayns::ModelDescriptorPtr DICOMLoader::importFromFile(
+    const std::string& path, const size_t /*index*/,
+    const size_t /*defaultMaterial*/)
+{
+    const auto extension = boost::filesystem::extension(path);
+    if (extension == ".dcm")
+        return readFile(path);
+    return readDirectory(path);
 }
 
 brayns::ModelDescriptorPtr DICOMLoader::importFromBlob(brayns::Blob&&,

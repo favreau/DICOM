@@ -31,9 +31,10 @@
 struct DICOMImageDescriptor
 {
     std::string path;
-    brayns::Vector2ui size;
-    brayns::Vector3f position;
-    brayns::Vector2f pixelSpacing;
+    brayns::Vector2ui dimensions{0, 0};
+    brayns::Vector3f position{0, 0, 0};
+    brayns::Vector2f pixelSpacing{1, 1};
+    std::vector<uint16_t> buffer;
 };
 typedef std::vector<DICOMImageDescriptor> DICOMImageDescriptors;
 
@@ -46,7 +47,7 @@ public:
     static std::set<std::string> getSupportedDataTypes();
 
     brayns::ModelDescriptorPtr importFromFile(
-        const std::string& fileName, const size_t index = 0,
+        const std::string& path, const size_t index = 0,
         const size_t defaultMaterial = brayns::NO_MATERIAL) final;
 
     brayns::ModelDescriptorPtr importFromBlob(
@@ -56,6 +57,9 @@ public:
 private:
     DICOMImageDescriptors parseDICOMImagesData(const std::string& fileName,
                                                std::string& patientName);
+    brayns::ModelDescriptorPtr readDirectory(const std::string& path);
+    brayns::ModelDescriptorPtr readFile(const std::string& path);
+    DICOMImageDescriptor readDICOMFile(const std::string& path);
     const brayns::GeometryParameters& _geometryParameters;
 };
 
