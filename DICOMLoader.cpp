@@ -24,6 +24,7 @@
 
 #include <brayns/common/scene/Model.h>
 #include <brayns/common/scene/Scene.h>
+#include <brayns/common/utils/Utils.h>
 #include <brayns/common/volume/SharedDataVolume.h>
 
 #include <dcmtk/dcmdata/dcddirif.h>
@@ -127,9 +128,9 @@ DICOMImageDescriptors DICOMLoader::parseDICOMImagesData(
     return dicomImages;
 }
 
-DICOMImageDescriptor DICOMLoader::readDICOMFile(const std::string& fileName)
+void DICOMLoader::readDICOMFile(const std::string& fileName,
+                                DICOMImageDescriptor& imageDescriptor)
 {
-    DICOMImageDescriptor imageDescriptor;
     DicomImage* image = new DicomImage(fileName.c_str());
     if (image)
     {
@@ -155,12 +156,14 @@ DICOMImageDescriptor DICOMLoader::readDICOMFile(const std::string& fileName)
                              size * sizeof(uint16_t));
         delete image;
     }
-    return imageDescriptor;
+    else
+        throw std::runtime_error("Failed to open " + fileName);
 }
 
 brayns::ModelDescriptorPtr DICOMLoader::readFile(const std::string& fileName)
 {
-    DICOMImageDescriptor imageDescriptor = readDICOMFile(fileName);
+    DICOMImageDescriptor imageDescriptor;
+    readDICOMFile(fileName, imageDescriptor);
 
     // Data range
     const brayns::Vector2f dataRange = {std::numeric_limits<uint16_t>::min(),
@@ -228,7 +231,8 @@ brayns::ModelDescriptorPtr DICOMLoader::readDirectory(
     auto& volumeData = volume->getData();
     for (const auto& dicomImage : dicomImages)
     {
-        auto imageDescriptor = readDICOMFile(dicomImage.path);
+        DICOMImageDescriptor imageDescriptor;
+        readDICOMFile(dicomImage.path, imageDescriptor);
         volumeData.insert(volumeData.end(), imageDescriptor.buffer.begin(),
                           imageDescriptor.buffer.end());
     }
@@ -251,6 +255,59 @@ brayns::ModelDescriptorPtr DICOMLoader::readDirectory(
         std::make_shared<brayns::ModelDescriptor>(std::move(model), "DICOMDIR",
                                                   metaData);
     modelDescriptor->setTransformation(transformation);
+    return modelDescriptor;
+}
+
+brayns::ModelDescriptorPtr DICOMLoader::importFromFolder(
+    const std::string& path)
+{
+    const auto& files = brayns::parseFolder(path, {".dcm"});
+    if (files.empty())
+        throw std::runtime_error("DICOM folder does not contain any images");
+
+    // Load first image to get size information
+    DICOMImageDescriptor imageDescriptor;
+    readDICOMFile(files[0], imageDescriptor);
+
+    brayns::Vector3ui dimensions = {imageDescriptor.dimensions.x(),
+                                    imageDescriptor.dimensions.y(),
+                                    (unsigned int)files.size()};
+
+    brayns::Vector3f elementSpacing = {1, 1, 1};
+    auto volume = _scene.createSharedDataVolume(dimensions, elementSpacing,
+                                                brayns::DataType::UINT16);
+    auto& volumeData = volume->getData();
+    volumeData.insert(volumeData.end(), imageDescriptor.buffer.begin(),
+                      imageDescriptor.buffer.end());
+
+    // Load remaining images
+    for (size_t i = 1; i < files.size(); ++i)
+    {
+        const auto& file = files[i];
+        DICOMImageDescriptor imageDesc;
+        readDICOMFile(file, imageDesc);
+        volumeData.insert(volumeData.end(), imageDescriptor.buffer.begin(),
+                          imageDescriptor.buffer.end());
+    }
+    const brayns::Vector2f dataRange = {std::numeric_limits<uint16_t>::min(),
+                                        std::numeric_limits<uint16_t>::max()};
+    volume->setDataRange(dataRange);
+    volume->mapData();
+
+    // Create Model
+    auto model = _scene.createModel();
+    model->addVolume(volume);
+
+    brayns::Transformation transformation;
+    transformation.setRotationCenter(model->getBounds().getCenter());
+    brayns::ModelMetadata metaData = {{"dimensions", to_string(dimensions)},
+                                      {"element-spacing",
+                                       to_string(elementSpacing)}};
+    auto modelDescriptor =
+        std::make_shared<brayns::ModelDescriptor>(std::move(model), path,
+                                                  metaData);
+    modelDescriptor->setTransformation(transformation);
+    modelDescriptor->setBoundingBox(true);
     return modelDescriptor;
 }
 

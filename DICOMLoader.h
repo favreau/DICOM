@@ -54,12 +54,15 @@ public:
         brayns::Blob&& blob, const size_t index = 0,
         const size_t defaultMaterial = brayns::NO_MATERIAL) final;
 
+    brayns::ModelDescriptorPtr importFromFolder(const std::string& path);
+
 private:
     DICOMImageDescriptors parseDICOMImagesData(const std::string& fileName,
                                                std::string& patientName);
     brayns::ModelDescriptorPtr readDirectory(const std::string& path);
     brayns::ModelDescriptorPtr readFile(const std::string& path);
-    DICOMImageDescriptor readDICOMFile(const std::string& path);
+    void readDICOMFile(const std::string& path,
+                       DICOMImageDescriptor& imageDescriptor);
     const brayns::GeometryParameters& _geometryParameters;
 };
 

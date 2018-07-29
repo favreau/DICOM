@@ -20,6 +20,7 @@
 #define DICOMPLUGIN_H
 
 #include "DICOMLoader.h"
+#include "DICOMParams.h"
 
 #include <array>
 #include <brayns/common/types.h>
@@ -44,9 +45,13 @@ public:
     void preRender() final;
 
 private:
+    void _updateDICOMFolderFromJson(const DICOMFolder& folder);
+
     brayns::Scene& _scene;
     brayns::ParametersManager& _parametersManager;
     brayns::Camera& _camera;
+    DICOMFolder _folder;
+    bool _dirty{false};
 };
 
 #endif

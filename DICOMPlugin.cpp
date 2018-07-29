@@ -32,7 +32,7 @@
 
 DICOMPlugin::DICOMPlugin(brayns::Scene &scene,
                          brayns::ParametersManager &parametersManager,
-                         brayns::ActionInterface * /*actionInterface*/,
+                         brayns::ActionInterface *actionInterface,
                          brayns::Camera &camera, int /*argc*/, char ** /*argv*/)
     : ExtensionPlugin()
     , _scene(scene)
@@ -47,10 +47,31 @@ DICOMPlugin::DICOMPlugin(brayns::Scene &scene,
                     ] {
                         return std::make_unique<DICOMLoader>(scene, params);
                     }));
+
+    if (actionInterface)
+    {
+        actionInterface->registerNotification<DICOMFolder>(
+            "dicom",
+            [&](const DICOMFolder &s) { _updateDICOMFolderFromJson(s); });
+    }
+}
+
+void DICOMPlugin::_updateDICOMFolderFromJson(const DICOMFolder &folder)
+{
+    _folder = folder;
+    _dirty = true;
 }
 
 void DICOMPlugin::preRender()
 {
+    if (_dirty)
+    {
+        PLUGIN_INFO << "Importing DICOM data from " << _folder.path
+                    << std::endl;
+        DICOMLoader loader(_scene, _parametersManager.getGeometryParameters());
+        _scene.addModel(loader.importFromFolder(_folder.path));
+    }
+    _dirty = false;
 }
 
 extern "C" brayns::ExtensionPlugin *brayns_plugin_create(brayns::PluginAPI *api,

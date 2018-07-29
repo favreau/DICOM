@@ -17,11 +17,13 @@ common_find_package_post()
 
 set(${NAME}_SOURCES
   DICOMPlugin.cpp
+  DICOMParams.cpp
   DICOMLoader.cpp
 )
 
 set(${NAME}_PUBLIC_HEADERS
   DICOMPlugin.h
+  DICOMParams.h
   DICOMLoader.h
 )
 
