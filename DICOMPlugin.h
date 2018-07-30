@@ -19,8 +19,8 @@
 #ifndef DICOMPLUGIN_H
 #define DICOMPLUGIN_H
 
-#include "DICOMLoader.h"
-#include "DICOMParams.h"
+#include <api/DICOMParams.h>
+#include <io/DICOMLoader.h>
 
 #include <array>
 #include <brayns/common/types.h>

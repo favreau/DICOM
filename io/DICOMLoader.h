@@ -31,12 +31,14 @@
 struct DICOMImageDescriptor
 {
     std::string path;
+    brayns::DataType dataType;
     brayns::Vector2ui dimensions{0, 0};
     brayns::Vector3f position{0, 0, 0};
     brayns::Vector2f pixelSpacing{1, 1};
-    std::vector<uint16_t> buffer;
+    brayns::Vector2f dataRange;
+    std::vector<char> buffer;
 };
-typedef std::vector<DICOMImageDescriptor> DICOMImageDescriptors;
+using DICOMImageDescriptors = std::vector<DICOMImageDescriptor>;
 
 class DICOMLoader : public brayns::Loader
 {
@@ -59,10 +61,13 @@ public:
 private:
     DICOMImageDescriptors parseDICOMImagesData(const std::string& fileName,
                                                std::string& patientName);
-    brayns::ModelDescriptorPtr readDirectory(const std::string& path);
-    brayns::ModelDescriptorPtr readFile(const std::string& path);
+
     void readDICOMFile(const std::string& path,
                        DICOMImageDescriptor& imageDescriptor);
+
+    brayns::ModelDescriptorPtr readDirectory(const std::string& path);
+    brayns::ModelDescriptorPtr readFile(const std::string& path);
+
     const brayns::GeometryParameters& _geometryParameters;
 };
 
