@@ -37,6 +37,7 @@ struct DICOMImageDescriptor
     brayns::Vector2f pixelSpacing{1, 1};
     brayns::Vector2f dataRange;
     std::vector<char> buffer;
+    uint16_t nbFrames;
 };
 using DICOMImageDescriptors = std::vector<DICOMImageDescriptor>;
 
@@ -59,6 +60,8 @@ public:
     brayns::ModelDescriptorPtr importFromFolder(const std::string& path);
 
 private:
+    std::string dataTypeToString(const brayns::DataType& dataType);
+
     DICOMImageDescriptors parseDICOMImagesData(const std::string& fileName,
                                                std::string& patientName);
 
