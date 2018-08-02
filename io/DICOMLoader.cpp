@@ -56,9 +56,12 @@ void DICOMLoader::readDICOMFile(const std::string& fileName,
     DcmDataset* dataset = file.getDataset();
     //    dataset->print(std::cout);
     double position[3];
-    double pixelSpacing[2];
     for (size_t i = 0; i < 3; ++i)
         dataset->findAndGetFloat64(DCM_ImagePositionPatient, position[i], i);
+    long imageSize[2];
+    dataset->findAndGetLongInt(DCM_Columns, imageSize[0], 0);
+    dataset->findAndGetLongInt(DCM_Rows, imageSize[1], 0);
+    double pixelSpacing[2];
     for (size_t i = 0; i < 2; ++i)
         dataset->findAndGetFloat64(DCM_PixelSpacing, pixelSpacing[i], i);
 
@@ -66,8 +69,8 @@ void DICOMLoader::readDICOMFile(const std::string& fileName,
     if (image)
     {
         imageDescriptor.nbFrames = image->getNumberOfFrames();
-        PLUGIN_DEBUG << fileName << ": " << imageDescriptor.nbFrames
-                     << " frame(s)" << std::endl;
+        PLUGIN_INFO << fileName << ": " << imageDescriptor.nbFrames
+                    << " frame(s)" << std::endl;
 
         if (image->getStatus() != EIS_Normal)
             throw std::runtime_error("Error: cannot load DICOM image from " +
@@ -103,8 +106,8 @@ void DICOMLoader::readDICOMFile(const std::string& fileName,
 
         imageDescriptor.position = {(float)position[0], (float)position[1],
                                     (float)position[2]};
-        imageDescriptor.dimensions = {(unsigned int)image->getWidth(),
-                                      (unsigned int)image->getHeight()};
+        imageDescriptor.dimensions = {(unsigned int)imageSize[0],
+                                      (unsigned int)imageSize[1]};
         imageDescriptor.pixelSpacing = {(float)pixelSpacing[0],
                                         (float)pixelSpacing[1]};
 
@@ -138,76 +141,66 @@ DICOMImageDescriptors DICOMLoader::parseDICOMImagesData(
 {
     DICOMImageDescriptors dicomImages;
     DcmDicomDir dicomdir(fileName.c_str());
-    if (dicomdir.verify().good())
+    DcmDirectoryRecord* studyRecord = nullptr;
+    DcmDirectoryRecord* patientRecord = nullptr;
+    DcmDirectoryRecord* seriesRecord = nullptr;
+    DcmDirectoryRecord* imageRecord = nullptr;
+    OFString tmpString;
+
+    if (!dicomdir.verify().good())
+        throw std::runtime_error("Failed to open " + fileName);
+
+    auto root = dicomdir.getRootRecord();
+    while ((patientRecord = root.nextSub(patientRecord)) != nullptr)
     {
-        auto root = dicomdir.getRootRecord();
-        //        root.print(std::cout);
-        auto sub = root.getSub(0);
+        patientRecord->findAndGetOFString(DCM_PatientName, tmpString);
+        patientName = tmpString.c_str();
 
-        // Patient name
-        OFString pn;
-        if (sub)
+        while ((studyRecord = patientRecord->nextSub(studyRecord)) != nullptr)
         {
-            sub->findAndGetOFString(DCM_PatientName, pn);
-            patientName = pn.c_str();
-        }
+            studyRecord->findAndGetOFString(DCM_StudyID, tmpString);
+            PLUGIN_INFO << "Study ID: " << tmpString << std::endl;
 
-        // Images
-        while (sub)
-        {
-            for (size_t i = 0; i < sub->cardSub(); ++i)
+            // Read all series and filter according to SeriesInstanceUID
+            while ((seriesRecord = studyRecord->nextSub(seriesRecord)) !=
+                   nullptr)
             {
-                auto s = sub->getSub(i);
-                if (s->getRecordType() == ERT_Image)
+                seriesRecord->findAndGetOFString(DCM_SeriesNumber, tmpString);
+                PLUGIN_INFO << "Series number: " << tmpString << std::endl;
+
+                if (std::string(tmpString.c_str()) != "600")
+                    continue;
+
+                size_t nbImages = 0;
+                while ((imageRecord = seriesRecord->nextSub(imageRecord)) !=
+                       nullptr)
                 {
                     OFString refId;
-                    s->findAndGetOFStringArray(DCM_ReferencedFileID, refId);
+                    imageRecord->findAndGetOFStringArray(DCM_ReferencedFileID,
+                                                         refId);
 
                     // Replace backslashes with slashes
                     std::string str = std::string(refId.data());
                     while (str.find("\\") != std::string::npos)
                         str.replace(str.find("\\"), 1, "/");
 
-                    // Get folder from filename
+                    // Full image filename
                     boost::filesystem::path path = fileName;
                     boost::filesystem::path folder = path.parent_path();
                     const std::string imageFileName =
                         std::string(folder.string()) + "/" + str;
 
-                    // Image position patient
-                    double ipp[3];
-                    for (size_t j = 0; j < 3; ++j)
-                        s->findAndGetFloat64(DCM_ImagePositionPatient, ipp[j],
-                                             j);
-
-                    // Image size
-                    long es[2];
-                    s->findAndGetLongInt(DCM_Columns, es[0], 0);
-                    s->findAndGetLongInt(DCM_Rows, es[1], 0);
-
-                    // Image size
-                    double ps[2];
-                    for (size_t j = 0; j < 2; ++j)
-                        s->findAndGetFloat64(DCM_PixelSpacing, ps[j], j);
-
-                    dicomImages.push_back(
-                        {imageFileName,
-                         brayns::DataType::UINT8,
-                         {(unsigned int)es[0], (unsigned int)es[1]},
-                         {(float)ipp[0], (float)ipp[1], (float)ipp[2]},
-                         {(float)ps[0], (float)ps[1]},
-                         {0.f, 0.f},
-                         {},
-                         0});
+                    // Load image from file
+                    DICOMImageDescriptor imageDescriptor;
+                    readDICOMFile(imageFileName, imageDescriptor);
+                    dicomImages.push_back(imageDescriptor);
+                    ++nbImages;
                 }
+                PLUGIN_INFO << nbImages << " images" << std::endl;
+                // break; // TODO: Manage multiple series
             }
-
-            // Next element
-            sub = sub->getSub(0);
         }
     }
-    else
-        PLUGIN_ERROR << fileName << std::endl;
     return dicomImages;
 }
 
@@ -217,8 +210,8 @@ brayns::ModelDescriptorPtr DICOMLoader::readFile(const std::string& fileName)
     readDICOMFile(fileName, imageDescriptor);
 
     // Data range
-    const brayns::Vector2f dataRange = {std::numeric_limits<uint16_t>::min(),
-                                        std::numeric_limits<uint16_t>::max()};
+    const brayns::Vector2f dataRange = {std::numeric_limits<uint16_t>::max(),
+                                        std::numeric_limits<uint16_t>::min()};
 
     auto volume = _scene.createSharedDataVolume(
         {imageDescriptor.dimensions.x(), imageDescriptor.dimensions.y(), 1},
@@ -263,9 +256,9 @@ brayns::ModelDescriptorPtr DICOMLoader::readDirectory(
     brayns::Vector3f elementSpacing{dicomImages[0].pixelSpacing.x(),
                                     dicomImages[0].pixelSpacing.y(),
                                     dicomImages[0].pixelSpacing.y()};
-    if (dicomImages.size() > 1)
-        elementSpacing.z() =
-            dicomImages[1].position.z() - dicomImages[0].position.z();
+    //    if (dicomImages.size() > 1)
+    //        elementSpacing.z() =
+    //            dicomImages[1].position.z() - dicomImages[0].position.z();
 
     // Load images into volume
     updateProgress("Loading voxels ...", 1, 2);
@@ -278,12 +271,11 @@ brayns::ModelDescriptorPtr DICOMLoader::readDirectory(
     std::vector<char> volumeData;
     for (const auto& dicomImage : dicomImages)
     {
-        DICOMImageDescriptor id;
-        readDICOMFile(dicomImage.path, id);
-        volumeData.insert(volumeData.end(), id.buffer.begin(), id.buffer.end());
-        dataType = id.dataType;
-        dataRange.x() = std::min(dataRange.x(), id.dataRange.x());
-        dataRange.y() = std::max(dataRange.y(), id.dataRange.y());
+        volumeData.insert(volumeData.end(), dicomImage.buffer.begin(),
+                          dicomImage.buffer.end());
+        dataType = dicomImage.dataType;
+        dataRange.x() = std::min(dataRange.x(), dicomImage.dataRange.x());
+        dataRange.y() = std::max(dataRange.y(), dicomImage.dataRange.y());
     }
 
     // Create Model
@@ -346,11 +338,9 @@ brayns::ModelDescriptorPtr DICOMLoader::importFromFolder(
             elementSpacing = {id.pixelSpacing.x(), id.pixelSpacing.y(), 1.f};
             break;
         }
-        //        case 1:
-        //            elementSpacing.z() = abs(imageDescriptors[i].position.z()
-        //            -
-        //                                     imageDescriptors[i -
-        //                                     1].position.z());
+        case 1:
+            elementSpacing.z() = abs(imageDescriptors[i].position.z() -
+                                     imageDescriptors[i - 1].position.z());
         default:
             dimensions.z() += id.nbFrames;
         }
