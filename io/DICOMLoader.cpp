@@ -48,33 +48,89 @@ DICOMLoader::DICOMLoader(brayns::Scene& scene,
 {
 }
 
-std::set<std::string> DICOMLoader::getSupportedDataTypes()
+void DICOMLoader::readDICOMFile(const std::string& fileName,
+                                DICOMImageDescriptor& imageDescriptor)
 {
-    return {"", "dicom", "dcm"};
-}
+    DcmFileFormat file;
+    file.loadFile(fileName.c_str());
+    DcmDataset* dataset = file.getDataset();
+    //    dataset->print(std::cout);
+    double position[3];
+    double pixelSpacing[2];
+    for (size_t i = 0; i < 3; ++i)
+        dataset->findAndGetFloat64(DCM_ImagePositionPatient, position[i], i);
+    for (size_t i = 0; i < 2; ++i)
+        dataset->findAndGetFloat64(DCM_PixelSpacing, pixelSpacing[i], i);
 
-std::string DICOMLoader::dataTypeToString(const brayns::DataType& dataType)
-{
-    switch (dataType)
+    DicomImage* image = new DicomImage(fileName.c_str());
+    if (image)
     {
-    case brayns::DataType::UINT8:
-        return "Unsigned 8bit";
-    case brayns::DataType::UINT16:
-        return "Unsigned 16bit";
-    case brayns::DataType::UINT32:
-        return "Unsigned 32bit";
-    case brayns::DataType::INT8:
-        return "Signed 8bit";
-    case brayns::DataType::INT16:
-        return "Signed 16bit";
-    case brayns::DataType::INT32:
-        return "Signed 32bit";
-    case brayns::DataType::FLOAT:
-        return "Float";
-    case brayns::DataType::DOUBLE:
-        return "Double";
+        imageDescriptor.nbFrames = image->getNumberOfFrames();
+        PLUGIN_DEBUG << fileName << ": " << imageDescriptor.nbFrames
+                     << " frame(s)" << std::endl;
+
+        if (image->getStatus() != EIS_Normal)
+            throw std::runtime_error("Error: cannot load DICOM image from " +
+                                     fileName);
+        const auto imageDepth = image->getDepth();
+        size_t voxelSize;
+        if (image->getInterData())
+        {
+            switch (image->getInterData()->getRepresentation())
+            {
+            case EPR_Sint8:
+                imageDescriptor.dataType = brayns::DataType::UINT8;
+                voxelSize = sizeof(int8_t);
+                break;
+            case EPR_Uint8:
+                imageDescriptor.dataType = brayns::DataType::UINT8;
+                voxelSize = sizeof(uint8_t);
+                break;
+            case EPR_Sint16:
+                imageDescriptor.dataType = brayns::DataType::INT16;
+                voxelSize = sizeof(int16_t);
+                break;
+            case EPR_Uint16:
+                imageDescriptor.dataType = brayns::DataType::UINT16;
+                voxelSize = sizeof(uint16_t);
+                break;
+            default:
+                throw std::runtime_error("Unsupported volume format");
+            }
+        }
+        else
+            throw std::runtime_error("Failed to identify image representation");
+
+        imageDescriptor.position = {(float)position[0], (float)position[1],
+                                    (float)position[2]};
+        imageDescriptor.dimensions = {(unsigned int)image->getWidth(),
+                                      (unsigned int)image->getHeight()};
+        imageDescriptor.pixelSpacing = {(float)pixelSpacing[0],
+                                        (float)pixelSpacing[1]};
+
+        std::vector<char> rawBuffer;
+        auto rawBufferSize = image->getOutputDataSize();
+        rawBuffer.resize(rawBufferSize);
+
+        if (!image->getOutputData(rawBuffer.data(), rawBufferSize, imageDepth))
+            throw std::runtime_error("Failed to load image data from " +
+                                     fileName);
+
+        // Convert frame buffer according to bit depth
+        size_t step = 1;
+        if (float(imageDepth) / float(8 * voxelSize) > 1.f)
+            step = 2;
+        for (size_t i = 0; i < rawBufferSize; ++i)
+            if ((i / voxelSize) % step == 0)
+                imageDescriptor.buffer.push_back(rawBuffer[i]);
+
+        double minRange, maxRange;
+        image->getMinMaxValues(minRange, maxRange);
+        imageDescriptor.dataRange = {float(minRange), float(maxRange)};
+        delete image;
     }
-    return "Undefined";
+    else
+        throw std::runtime_error("Failed to open " + fileName);
 }
 
 DICOMImageDescriptors DICOMLoader::parseDICOMImagesData(
@@ -155,96 +211,6 @@ DICOMImageDescriptors DICOMLoader::parseDICOMImagesData(
     return dicomImages;
 }
 
-void DICOMLoader::readDICOMFile(const std::string& fileName,
-                                DICOMImageDescriptor& imageDescriptor)
-{
-    DcmFileFormat file;
-    file.loadFile(fileName.c_str());
-    DcmDataset* dataset = file.getDataset();
-    //    dataset->print(std::cout);
-    double position[3];
-    double pixelSpacing[2];
-    for (size_t i = 0; i < 3; ++i)
-        dataset->findAndGetFloat64(DCM_ImagePositionPatient, position[i], i);
-    for (size_t i = 0; i < 2; ++i)
-        dataset->findAndGetFloat64(DCM_PixelSpacing, pixelSpacing[i], i);
-
-    DicomImage* image = new DicomImage(fileName.c_str());
-    if (image)
-    {
-        imageDescriptor.nbFrames = image->getNumberOfFrames();
-        PLUGIN_DEBUG << fileName << ": " << imageDescriptor.nbFrames
-                     << " frame(s)" << std::endl;
-
-        if (image->getStatus() != EIS_Normal)
-            throw std::runtime_error("Error: cannot load DICOM image from " +
-                                     fileName);
-        const auto imageDepth = image->getDepth();
-        size_t voxelSize;
-        if (image->getInterData())
-        {
-            switch (image->getInterData()->getRepresentation())
-            {
-            case EPR_Sint8:
-                imageDescriptor.dataType = brayns::DataType::UINT8;
-                voxelSize = sizeof(int8_t);
-                break;
-            case EPR_Uint8:
-                imageDescriptor.dataType = brayns::DataType::UINT8;
-                voxelSize = sizeof(uint8_t);
-                break;
-            case EPR_Sint16:
-                imageDescriptor.dataType = brayns::DataType::INT16;
-                voxelSize = sizeof(int16_t);
-                break;
-            case EPR_Uint16:
-                imageDescriptor.dataType = brayns::DataType::UINT16;
-                voxelSize = sizeof(uint16_t);
-                break;
-            default:
-                throw std::runtime_error("Unsupported volume format");
-            }
-        }
-        else
-            throw std::runtime_error("Failed to identify image representation");
-
-        imageDescriptor.position = {(float)position[0], (float)position[1],
-                                    (float)position[2]};
-        imageDescriptor.dimensions = {(unsigned int)image->getWidth(),
-                                      (unsigned int)image->getHeight()};
-        imageDescriptor.pixelSpacing = {(float)pixelSpacing[0],
-                                        (float)pixelSpacing[1]};
-
-        const auto size = imageDescriptor.dimensions.x() *
-                          imageDescriptor.dimensions.y() * voxelSize;
-        imageDescriptor.buffer.resize(size);
-
-        std::vector<char> rawBuffer;
-        auto imageSize = image->getOutputDataSize();
-        rawBuffer.resize(imageSize);
-
-        if (!image->getOutputData(rawBuffer.data(), image->getOutputDataSize(),
-                                  imageDepth))
-            throw std::runtime_error("Failed to load image data from " +
-                                     fileName);
-
-        // Convert frame buffer according to bit depth
-        size_t step = 1;
-        if (float(imageDepth) / float(8 * voxelSize) > 1.f)
-            step = 2;
-        for (size_t i = 0; i < rawBuffer.size(); ++i)
-            if ((i / voxelSize) % step == 0)
-                imageDescriptor.buffer.push_back(rawBuffer[i]);
-
-        double minRange, maxRange;
-        image->getMinMaxValues(minRange, maxRange);
-        imageDescriptor.dataRange = {float(minRange), float(maxRange)};
-        delete image;
-    }
-    else
-        throw std::runtime_error("Failed to open " + fileName);
-}
-
 brayns::ModelDescriptorPtr DICOMLoader::readFile(const std::string& fileName)
 {
     DICOMImageDescriptor imageDescriptor;
@@ -304,21 +270,31 @@ brayns::ModelDescriptorPtr DICOMLoader::readDirectory(
     // Load images into volume
     updateProgress("Loading voxels ...", 1, 2);
 
-    auto volume = _scene.createSharedDataVolume(dimensions, elementSpacing,
-                                                brayns::DataType::UINT16);
+    // Data type and range
+    brayns::DataType dataType;
+    brayns::Vector2f dataRange{std::numeric_limits<float>::max(),
+                               std::numeric_limits<float>::min()};
+
     std::vector<char> volumeData;
     for (const auto& dicomImage : dicomImages)
     {
-        DICOMImageDescriptor imageDescriptor;
-        readDICOMFile(dicomImage.path, imageDescriptor);
-        volumeData.insert(volumeData.end(), imageDescriptor.buffer.begin(),
-                          imageDescriptor.buffer.end());
-        volume->setDataRange(dicomImage.dataRange);
+        DICOMImageDescriptor id;
+        readDICOMFile(dicomImage.path, id);
+        volumeData.insert(volumeData.end(), id.buffer.begin(), id.buffer.end());
+        dataType = id.dataType;
+        dataRange.x() = std::min(dataRange.x(), id.dataRange.x());
+        dataRange.y() = std::max(dataRange.y(), id.dataRange.y());
     }
-    volume->mapData(volumeData);
 
     // Create Model
     updateProgress("Creating model ...", 2, 2);
+    PLUGIN_INFO << "Creating " << dataTypeToString(dataType) << " volume "
+                << dimensions << ", " << elementSpacing << ", " << dataRange
+                << " (" << volumeData.size() << " bytes)" << std::endl;
+    auto volume =
+        _scene.createSharedDataVolume(dimensions, elementSpacing, dataType);
+    volume->setDataRange(dataRange);
+    volume->mapData(volumeData);
     auto model = _scene.createModel();
     model->addVolume(volume);
 
@@ -432,4 +408,33 @@ brayns::ModelDescriptorPtr DICOMLoader::importFromBlob(brayns::Blob&&,
                                                        const size_t)
 {
     throw std::runtime_error("Loading DICOM from blob is not supported");
+}
+
+std::set<std::string> DICOMLoader::getSupportedDataTypes()
+{
+    return {"dcm", "DICOMDIR"};
+}
+
+std::string DICOMLoader::dataTypeToString(const brayns::DataType& dataType)
+{
+    switch (dataType)
+    {
+    case brayns::DataType::UINT8:
+        return "Unsigned 8bit";
+    case brayns::DataType::UINT16:
+        return "Unsigned 16bit";
+    case brayns::DataType::UINT32:
+        return "Unsigned 32bit";
+    case brayns::DataType::INT8:
+        return "Signed 8bit";
+    case brayns::DataType::INT16:
+        return "Signed 16bit";
+    case brayns::DataType::INT32:
+        return "Signed 32bit";
+    case brayns::DataType::FLOAT:
+        return "Float";
+    case brayns::DataType::DOUBLE:
+        return "Double";
+    }
+    return "Undefined";
 }
