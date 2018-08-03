@@ -69,8 +69,8 @@ void DICOMLoader::readDICOMFile(const std::string& fileName,
     if (image)
     {
         imageDescriptor.nbFrames = image->getNumberOfFrames();
-        PLUGIN_INFO << fileName << ": " << imageDescriptor.nbFrames
-                    << " frame(s)" << std::endl;
+        PLUGIN_DEBUG << fileName << ": " << imageDescriptor.nbFrames
+                     << " frame(s)" << std::endl;
 
         if (image->getStatus() != EIS_Normal)
             throw std::runtime_error("Error: cannot load DICOM image from " +
@@ -168,9 +168,6 @@ DICOMImageDescriptors DICOMLoader::parseDICOMImagesData(
                 seriesRecord->findAndGetOFString(DCM_SeriesNumber, tmpString);
                 PLUGIN_INFO << "Series number: " << tmpString << std::endl;
 
-                if (std::string(tmpString.c_str()) != "600")
-                    continue;
-
                 size_t nbImages = 0;
                 while ((imageRecord = seriesRecord->nextSub(imageRecord)) !=
                        nullptr)
@@ -196,7 +193,7 @@ DICOMImageDescriptors DICOMLoader::parseDICOMImagesData(
                     dicomImages.push_back(imageDescriptor);
                     ++nbImages;
                 }
-                PLUGIN_INFO << nbImages << " images" << std::endl;
+                PLUGIN_DEBUG << nbImages << " images" << std::endl;
                 // break; // TODO: Manage multiple series
             }
         }
@@ -256,9 +253,9 @@ brayns::ModelDescriptorPtr DICOMLoader::readDirectory(
     brayns::Vector3f elementSpacing{dicomImages[0].pixelSpacing.x(),
                                     dicomImages[0].pixelSpacing.y(),
                                     dicomImages[0].pixelSpacing.y()};
-    //    if (dicomImages.size() > 1)
-    //        elementSpacing.z() =
-    //            dicomImages[1].position.z() - dicomImages[0].position.z();
+    if (dicomImages.size() > 1)
+        elementSpacing.z() =
+            dicomImages[1].position.z() - dicomImages[0].position.z();
 
     // Load images into volume
     updateProgress("Loading voxels ...", 1, 2);
