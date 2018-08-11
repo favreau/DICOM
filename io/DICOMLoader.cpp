@@ -137,7 +137,7 @@ void DICOMLoader::readDICOMFile(const std::string& fileName,
 }
 
 DICOMImageDescriptors DICOMLoader::parseDICOMImagesData(
-    const std::string& fileName, std::string& patientName)
+    const std::string& fileName, brayns::ModelMetadata& metadata)
 {
     DICOMImageDescriptors dicomImages;
     DcmDicomDir dicomdir(fileName.c_str());
@@ -153,13 +153,21 @@ DICOMImageDescriptors DICOMLoader::parseDICOMImagesData(
     auto root = dicomdir.getRootRecord();
     while ((patientRecord = root.nextSub(patientRecord)) != nullptr)
     {
+        patientRecord->findAndGetOFString(DCM_PatientID, tmpString);
+        metadata["Patient ID"] = tmpString.c_str();
         patientRecord->findAndGetOFString(DCM_PatientName, tmpString);
-        patientName = tmpString.c_str();
+        metadata["Patient name"] = tmpString.c_str();
+        patientRecord->findAndGetOFString(DCM_PatientAge, tmpString);
+        metadata["Patient age"] = tmpString.c_str();
+        patientRecord->findAndGetOFString(DCM_PatientSex, tmpString);
+        metadata["Patient sex"] = tmpString.c_str();
+        patientRecord->findAndGetOFString(DCM_PatientBirthDate, tmpString);
+        metadata["Patient date of birth"] = tmpString.c_str();
 
         while ((studyRecord = patientRecord->nextSub(studyRecord)) != nullptr)
         {
             studyRecord->findAndGetOFString(DCM_StudyID, tmpString);
-            PLUGIN_INFO << "Study ID: " << tmpString << std::endl;
+            metadata["Study ID"] = tmpString.c_str();
 
             // Read all series and filter according to SeriesInstanceUID
             while ((seriesRecord = studyRecord->nextSub(seriesRecord)) !=
@@ -224,8 +232,8 @@ brayns::ModelDescriptorPtr DICOMLoader::readFile(const std::string& fileName)
     brayns::Transformation transformation;
     transformation.setRotationCenter(model->getBounds().getCenter());
     brayns::ModelMetadata metaData = {
-        {"dimensions", to_string(imageDescriptor.dimensions)},
-        {"element-spacing", to_string(imageDescriptor.pixelSpacing)}};
+        {"Dimensions", to_string(imageDescriptor.dimensions)},
+        {"Element spacing", to_string(imageDescriptor.pixelSpacing)}};
 
     auto modelDescriptor =
         std::make_shared<brayns::ModelDescriptor>(std::move(model), fileName,
@@ -237,8 +245,8 @@ brayns::ModelDescriptorPtr DICOMLoader::readFile(const std::string& fileName)
 brayns::ModelDescriptorPtr DICOMLoader::readDirectory(
     const std::string& fileName)
 {
-    std::string patientName;
-    const auto& dicomImages = parseDICOMImagesData(fileName, patientName);
+    brayns::ModelMetadata metaData;
+    const auto& dicomImages = parseDICOMImagesData(fileName, metaData);
 
     if (dicomImages.empty())
         throw std::runtime_error("DICOM folder does not contain any images");
@@ -289,10 +297,8 @@ brayns::ModelDescriptorPtr DICOMLoader::readDirectory(
 
     brayns::Transformation transformation;
     transformation.setRotationCenter(model->getBounds().getCenter());
-    brayns::ModelMetadata metaData = {{"patient-name", patientName},
-                                      {"dimensions", to_string(dimensions)},
-                                      {"element-spacing",
-                                       to_string(elementSpacing)}};
+    metaData["Dimensions"] = to_string(dimensions);
+    metaData["Element spacing"] = to_string(elementSpacing);
 
     auto modelDescriptor =
         std::make_shared<brayns::ModelDescriptor>(std::move(model), "DICOMDIR",
@@ -368,10 +374,10 @@ brayns::ModelDescriptorPtr DICOMLoader::importFromFolder(
 
     brayns::Transformation transformation;
     transformation.setRotationCenter(model->getBounds().getCenter());
-    brayns::ModelMetadata metaData = {{"dimensions", to_string(dimensions)},
-                                      {"element-spacing",
+    brayns::ModelMetadata metaData = {{"Dimensions", to_string(dimensions)},
+                                      {"Element spacing",
                                        to_string(elementSpacing)},
-                                      {"data-range", to_string(dataRange)}};
+                                      {"Data range", to_string(dataRange)}};
     auto modelDescriptor =
         std::make_shared<brayns::ModelDescriptor>(std::move(model), path,
                                                   metaData);

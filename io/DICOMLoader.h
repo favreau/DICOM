@@ -63,7 +63,7 @@ private:
     std::string dataTypeToString(const brayns::DataType& dataType);
 
     DICOMImageDescriptors parseDICOMImagesData(const std::string& fileName,
-                                               std::string& patientName);
+                                               brayns::ModelMetadata& metadata);
 
     void readDICOMFile(const std::string& path,
                        DICOMImageDescriptor& imageDescriptor);
