@@ -344,6 +344,7 @@ brayns::ModelDescriptorPtr DICOMLoader::importFromFolder(
         case 1:
             elementSpacing.z() = abs(imageDescriptors[i].position.z() -
                                      imageDescriptors[i - 1].position.z());
+            break;
         default:
             dimensions.z() += id.nbFrames;
         }
