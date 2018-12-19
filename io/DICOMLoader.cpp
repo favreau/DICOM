@@ -22,16 +22,22 @@
 #include "DICOMLoader.h"
 #include "log.h"
 
-#include <brayns/common/scene/Model.h>
-#include <brayns/common/scene/Scene.h>
-#include <brayns/common/utils/Utils.h>
-#include <brayns/common/volume/SharedDataVolume.h>
+#include <brayns/common/utils/utils.h>
+#include <brayns/engine/Model.h>
+#include <brayns/engine/Scene.h>
+#include <brayns/engine/SharedDataVolume.h>
 
 #include <dcmtk/dcmdata/dcddirif.h>
 #include <dcmtk/dcmdata/dctk.h>
 #include <dcmtk/dcmimgle/dcmimage.h>
 
 #include <boost/filesystem.hpp>
+
+namespace
+{
+const std::string SUPPORTED_BASENAME_DICOMDIR = "DICOMDIR";
+const std::string SUPPORTED_EXTENSION_DCM = "dcm";
+} // namespace
 
 template <size_t M, typename T>
 std::string to_string(const vmml::vector<M, T>& vec)
@@ -42,19 +48,20 @@ std::string to_string(const vmml::vector<M, T>& vec)
 }
 
 DICOMLoader::DICOMLoader(brayns::Scene& scene,
-                         const brayns::GeometryParameters& geometryParameters)
+                         const brayns::GeometryParameters& geometryParameters,
+                         brayns::PropertyMap&& loaderParams)
     : Loader(scene)
     , _geometryParameters(geometryParameters)
+    , _loaderParams(loaderParams)
 {
 }
 
-void DICOMLoader::readDICOMFile(const std::string& fileName,
-                                DICOMImageDescriptor& imageDescriptor)
+void DICOMLoader::_readDICOMFile(const std::string& fileName,
+                                 DICOMImageDescriptor& imageDescriptor) const
 {
     DcmFileFormat file;
     file.loadFile(fileName.c_str());
     DcmDataset* dataset = file.getDataset();
-    //    dataset->print(std::cout);
     double position[3];
     for (size_t i = 0; i < 3; ++i)
         dataset->findAndGetFloat64(DCM_ImagePositionPatient, position[i], i);
@@ -136,8 +143,8 @@ void DICOMLoader::readDICOMFile(const std::string& fileName,
         throw std::runtime_error("Failed to open " + fileName);
 }
 
-DICOMImageDescriptors DICOMLoader::parseDICOMImagesData(
-    const std::string& fileName, brayns::ModelMetadata& metadata)
+DICOMImageDescriptors DICOMLoader::_parseDICOMImagesData(
+    const std::string& fileName, brayns::ModelMetadata& metadata) const
 {
     DICOMImageDescriptors dicomImages;
     DcmDicomDir dicomdir(fileName.c_str());
@@ -197,7 +204,7 @@ DICOMImageDescriptors DICOMLoader::parseDICOMImagesData(
 
                     // Load image from file
                     DICOMImageDescriptor imageDescriptor;
-                    readDICOMFile(imageFileName, imageDescriptor);
+                    _readDICOMFile(imageFileName, imageDescriptor);
                     dicomImages.push_back(imageDescriptor);
                     ++nbImages;
                 }
@@ -209,24 +216,30 @@ DICOMImageDescriptors DICOMLoader::parseDICOMImagesData(
     return dicomImages;
 }
 
-brayns::ModelDescriptorPtr DICOMLoader::readFile(const std::string& fileName)
+brayns::ModelDescriptorPtr DICOMLoader::_readFile(
+    const std::string& fileName) const
 {
     DICOMImageDescriptor imageDescriptor;
-    readDICOMFile(fileName, imageDescriptor);
+    _readDICOMFile(fileName, imageDescriptor);
 
     // Data range
     const brayns::Vector2f dataRange = {std::numeric_limits<uint16_t>::max(),
                                         std::numeric_limits<uint16_t>::min()};
 
-    auto volume = _scene.createSharedDataVolume(
+    // Create Model
+    auto model = _scene.createModel();
+    if (!model)
+        throw std::runtime_error("Failed to create model");
+
+    auto volume = model->createSharedDataVolume(
         {imageDescriptor.dimensions.x(), imageDescriptor.dimensions.y(), 1},
         {imageDescriptor.pixelSpacing.x(), imageDescriptor.pixelSpacing.y(), 1},
         brayns::DataType::UINT16);
+    if (!volume)
+        throw std::runtime_error("Failed to create volume");
+
     volume->setDataRange(dataRange);
     volume->mapData(imageDescriptor.buffer);
-
-    // Create Model
-    auto model = _scene.createModel();
     model->addVolume(volume);
 
     brayns::Transformation transformation;
@@ -242,11 +255,11 @@ brayns::ModelDescriptorPtr DICOMLoader::readFile(const std::string& fileName)
     return modelDescriptor;
 }
 
-brayns::ModelDescriptorPtr DICOMLoader::readDirectory(
-    const std::string& fileName)
+brayns::ModelDescriptorPtr DICOMLoader::_readDirectory(
+    const std::string& fileName, const brayns::LoaderProgress& callback) const
 {
     brayns::ModelMetadata metaData;
-    const auto& dicomImages = parseDICOMImagesData(fileName, metaData);
+    const auto& dicomImages = _parseDICOMImagesData(fileName, metaData);
 
     if (dicomImages.empty())
         throw std::runtime_error("DICOM folder does not contain any images");
@@ -266,7 +279,7 @@ brayns::ModelDescriptorPtr DICOMLoader::readDirectory(
             dicomImages[1].position.z() - dicomImages[0].position.z();
 
     // Load images into volume
-    updateProgress("Loading voxels ...", 1, 2);
+    callback.updateProgress("Loading voxels ...", 0.5f);
 
     // Data type and range
     brayns::DataType dataType;
@@ -284,15 +297,21 @@ brayns::ModelDescriptorPtr DICOMLoader::readDirectory(
     }
 
     // Create Model
-    updateProgress("Creating model ...", 2, 2);
-    PLUGIN_INFO << "Creating " << dataTypeToString(dataType) << " volume "
+    callback.updateProgress("Creating model ...", 1.f);
+    PLUGIN_INFO << "Creating " << _dataTypeToString(dataType) << " volume "
                 << dimensions << ", " << elementSpacing << ", " << dataRange
                 << " (" << volumeData.size() << " bytes)" << std::endl;
+    auto model = _scene.createModel();
+    if (!model)
+        throw std::runtime_error("Failed to create model");
+
     auto volume =
-        _scene.createSharedDataVolume(dimensions, elementSpacing, dataType);
+        model->createSharedDataVolume(dimensions, elementSpacing, dataType);
+    if (!volume)
+        throw std::runtime_error("Failed to create volume");
+
     volume->setDataRange(dataRange);
     volume->mapData(volumeData);
-    auto model = _scene.createModel();
     model->addVolume(volume);
 
     brayns::Transformation transformation;
@@ -310,7 +329,7 @@ brayns::ModelDescriptorPtr DICOMLoader::readDirectory(
 brayns::ModelDescriptorPtr DICOMLoader::importFromFolder(
     const std::string& path)
 {
-    auto files = brayns::parseFolder(path, {".dcm"});
+    auto files = brayns::parseFolder(path, {"." + SUPPORTED_EXTENSION_DCM});
     std::sort(files.begin(), files.end());
     if (files.empty())
         throw std::runtime_error("DICOM folder does not contain any images");
@@ -330,7 +349,7 @@ brayns::ModelDescriptorPtr DICOMLoader::importFromFolder(
     for (const auto& file : files)
     {
         auto& id = imageDescriptors[i];
-        readDICOMFile(file, id);
+        _readDICOMFile(file, id);
 
         switch (i)
         {
@@ -356,7 +375,7 @@ brayns::ModelDescriptorPtr DICOMLoader::importFromFolder(
     }
 
     // Create volume
-    PLUGIN_INFO << "Creating " << dataTypeToString(dataType) << " volume "
+    PLUGIN_INFO << "Creating " << _dataTypeToString(dataType) << " volume "
                 << dimensions << ", " << elementSpacing << ", " << dataRange
                 << std::endl;
 
@@ -364,13 +383,18 @@ brayns::ModelDescriptorPtr DICOMLoader::importFromFolder(
     for (const auto& id : imageDescriptors)
         volumeData.insert(volumeData.end(), id.buffer.begin(), id.buffer.end());
 
-    auto volume =
-        _scene.createSharedDataVolume(dimensions, elementSpacing, dataType);
-    volume->setDataRange(dataRange);
-    volume->mapData(volumeData);
-
     // Create Model
     auto model = _scene.createModel();
+    if (!model)
+        throw std::runtime_error("Failed to create model");
+
+    auto volume =
+        model->createSharedDataVolume(dimensions, elementSpacing, dataType);
+    if (!volume)
+        throw std::runtime_error("Failed to create volume");
+
+    volume->setDataRange(dataRange);
+    volume->mapData(volumeData);
     model->addVolume(volume);
 
     brayns::Transformation transformation;
@@ -388,28 +412,46 @@ brayns::ModelDescriptorPtr DICOMLoader::importFromFolder(
 }
 
 brayns::ModelDescriptorPtr DICOMLoader::importFromFile(
-    const std::string& path, const size_t /*index*/,
-    const size_t /*defaultMaterial*/)
+    const std::string& path, const brayns::LoaderProgress& callback,
+    const brayns::PropertyMap& /*properties*/, const size_t /*index*/,
+    const size_t /*defaultMaterial*/) const
 {
+    PLUGIN_INFO << "Importing DICOM dataset from " << path << std::endl;
     const auto extension = boost::filesystem::extension(path);
-    if (extension == ".dcm")
-        return readFile(path);
-    return readDirectory(path);
+    if (extension == "." + SUPPORTED_EXTENSION_DCM)
+        return _readFile(path);
+    return _readDirectory(path, callback);
 }
 
-brayns::ModelDescriptorPtr DICOMLoader::importFromBlob(brayns::Blob&&,
-                                                       const size_t,
-                                                       const size_t)
+brayns::ModelDescriptorPtr DICOMLoader::importFromBlob(
+    brayns::Blob&&, const brayns::LoaderProgress&, const brayns::PropertyMap&,
+    const size_t, const size_t) const
 {
     throw std::runtime_error("Loading DICOM from blob is not supported");
 }
 
-std::set<std::string> DICOMLoader::getSupportedDataTypes()
+std::string DICOMLoader::getName() const
 {
-    return {"dcm", "DICOMDIR"};
+    return "Loader for DICOM datasets";
 }
 
-std::string DICOMLoader::dataTypeToString(const brayns::DataType& dataType)
+std::vector<std::string> DICOMLoader::getSupportedExtensions() const
+{
+    return {SUPPORTED_EXTENSION_DCM, SUPPORTED_BASENAME_DICOMDIR};
+}
+
+bool DICOMLoader::isSupported(const std::string& filename,
+                              const std::string& extension) const
+{
+    const auto basename = boost::filesystem::basename(filename);
+    const std::set<std::string> basenames = {SUPPORTED_BASENAME_DICOMDIR};
+    const std::set<std::string> extensions = {SUPPORTED_EXTENSION_DCM};
+    return (basenames.find(basename) != basenames.end() ||
+            extensions.find(extension) != extensions.end());
+}
+
+std::string DICOMLoader::_dataTypeToString(
+    const brayns::DataType& dataType) const
 {
     switch (dataType)
     {
@@ -431,4 +473,10 @@ std::string DICOMLoader::dataTypeToString(const brayns::DataType& dataType)
         return "Double";
     }
     return "Undefined";
+}
+
+brayns::PropertyMap DICOMLoader::getCLIProperties()
+{
+    brayns::PropertyMap pm("DICOMLoader");
+    return pm;
 }

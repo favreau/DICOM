@@ -45,33 +45,46 @@ class DICOMLoader : public brayns::Loader
 {
 public:
     DICOMLoader(brayns::Scene& scene,
-                const brayns::GeometryParameters& geometryParameters);
+                const brayns::GeometryParameters& geometryParameters,
+                brayns::PropertyMap&& loaderParams);
 
-    static std::set<std::string> getSupportedDataTypes();
+    std::string getName() const final;
+
+    std::vector<std::string> getSupportedExtensions() const final;
+
+    bool isSupported(const std::string& filename,
+                     const std::string& extension) const final;
+
+    static brayns::PropertyMap getCLIProperties();
 
     brayns::ModelDescriptorPtr importFromFile(
-        const std::string& path, const size_t index = 0,
-        const size_t defaultMaterial = brayns::NO_MATERIAL) final;
+        const std::string& path, const brayns::LoaderProgress& callback,
+        const brayns::PropertyMap& properties, const size_t index = 0,
+        const size_t defaultMaterial = brayns::NO_MATERIAL) const final;
 
     brayns::ModelDescriptorPtr importFromBlob(
-        brayns::Blob&& blob, const size_t index = 0,
-        const size_t defaultMaterial = brayns::NO_MATERIAL) final;
+        brayns::Blob&& blob, const brayns::LoaderProgress& callback,
+        const brayns::PropertyMap& properties, const size_t index = 0,
+        const size_t defaultMaterial = brayns::NO_MATERIAL) const final;
 
     brayns::ModelDescriptorPtr importFromFolder(const std::string& path);
 
 private:
-    std::string dataTypeToString(const brayns::DataType& dataType);
+    std::string _dataTypeToString(const brayns::DataType& dataType) const;
 
-    DICOMImageDescriptors parseDICOMImagesData(const std::string& fileName,
-                                               brayns::ModelMetadata& metadata);
+    DICOMImageDescriptors _parseDICOMImagesData(
+        const std::string& fileName, brayns::ModelMetadata& metadata) const;
 
-    void readDICOMFile(const std::string& path,
-                       DICOMImageDescriptor& imageDescriptor);
+    void _readDICOMFile(const std::string& path,
+                        DICOMImageDescriptor& imageDescriptor) const;
 
-    brayns::ModelDescriptorPtr readDirectory(const std::string& path);
-    brayns::ModelDescriptorPtr readFile(const std::string& path);
+    brayns::ModelDescriptorPtr _readDirectory(
+        const std::string& path, const brayns::LoaderProgress& callback) const;
+
+    brayns::ModelDescriptorPtr _readFile(const std::string& path) const;
 
     const brayns::GeometryParameters& _geometryParameters;
+    brayns::PropertyMap _loaderParams;
 };
 
 #endif // DICOMLOADER_H

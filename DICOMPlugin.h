@@ -19,13 +19,10 @@
 #ifndef DICOMPLUGIN_H
 #define DICOMPLUGIN_H
 
-#include <api/DICOMParams.h>
 #include <io/DICOMLoader.h>
 
-#include <array>
 #include <brayns/common/types.h>
 #include <brayns/pluginapi/ExtensionPlugin.h>
-#include <vector>
 
 /**
  * @brief The AtomicVolumesPlugin class manages the loading of
@@ -34,23 +31,12 @@
 class DICOMPlugin : public brayns::ExtensionPlugin
 {
 public:
-    DICOMPlugin(brayns::Scene& scene,
-                brayns::ParametersManager& parametersManager,
-                brayns::ActionInterface* actionInterface,
-                brayns::Camera& camera, int argc, char** argv);
+    DICOMPlugin(brayns::PropertyMap&& dicomParams);
 
-    /**
-     * @brief preRender Updates the scene according to latest data load
-     */
-    void preRender() final;
+    void init() final;
 
 private:
-    void _updateDICOMFolderFromJson(const DICOMFolder& folder);
-
-    brayns::Scene& _scene;
-    brayns::ParametersManager& _parametersManager;
-    brayns::Camera& _camera;
-    DICOMFolder _folder;
+    brayns::PropertyMap _dicomParams;
     bool _dirty{false};
 };
 
