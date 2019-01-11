@@ -70,6 +70,9 @@ public:
     brayns::ModelDescriptorPtr importFromFolder(const std::string& path);
 
 private:
+    void _setDefaultTransferFunction(brayns::Model& model,
+                                     const brayns::Vector2f& dataRange) const;
+
     std::string _dataTypeToString(const brayns::DataType& dataType) const;
 
     DICOMImageDescriptors _parseDICOMImagesData(

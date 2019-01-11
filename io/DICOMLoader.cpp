@@ -37,6 +37,22 @@ namespace
 {
 const std::string SUPPORTED_BASENAME_DICOMDIR = "DICOMDIR";
 const std::string SUPPORTED_EXTENSION_DCM = "dcm";
+const brayns::ColorMap colormap = {
+    "DICOM",
+    {{0.21960784494876862, 0.0, 0.0},
+     {0.43921568989753723, 0.0, 0.0},
+     {0.6666666865348816, 0.16470588743686676, 0.0},
+     {0.886274516582489, 0.3843137323856354, 0.0},
+     {1.0, 0.6117647290229797, 0.11372549086809158},
+     {1.0, 0.8313725590705872, 0.3294117748737335},
+     {1.0, 1.0, 0.5607843399047852},
+     {1.0, 1.0, 0.7764706015586853}}};
+const brayns::Vector2ds controlPoints = {{0.0, 0.0},  {0.125, 0.0},
+                                         {0.25, 0.0}, {0.375, 0.0},
+                                         {0.5, 1.0},  {0.625, 1.0},
+                                         {0.75, 1.0}, {0.875, 1.0},
+                                         {1.0, 1.0}};
+
 } // namespace
 
 template <size_t M, typename T>
@@ -54,6 +70,15 @@ DICOMLoader::DICOMLoader(brayns::Scene& scene,
     , _geometryParameters(geometryParameters)
     , _loaderParams(loaderParams)
 {
+}
+
+void DICOMLoader::_setDefaultTransferFunction(
+    brayns::Model& model, const brayns::Vector2f& dataRange) const
+{
+    auto& tf = model.getTransferFunction();
+    tf.setValuesRange(dataRange);
+    tf.setColorMap(colormap);
+    tf.setControlPoints(controlPoints);
 }
 
 void DICOMLoader::_readDICOMFile(const std::string& fileName,
@@ -242,6 +267,10 @@ brayns::ModelDescriptorPtr DICOMLoader::_readFile(
     volume->mapData(imageDescriptor.buffer);
     model->addVolume(volume);
 
+    // Transfer function initialization
+    _setDefaultTransferFunction(*model, dataRange);
+
+    // Transformation
     brayns::Transformation transformation;
     transformation.setRotationCenter(model->getBounds().getCenter());
     brayns::ModelMetadata metaData = {
@@ -314,6 +343,10 @@ brayns::ModelDescriptorPtr DICOMLoader::_readDirectory(
     volume->mapData(volumeData);
     model->addVolume(volume);
 
+    // Transfer function initialization
+    _setDefaultTransferFunction(*model, dataRange);
+
+    // Transformation
     brayns::Transformation transformation;
     transformation.setRotationCenter(model->getBounds().getCenter());
     metaData["Dimensions"] = to_string(dimensions);
