@@ -31,7 +31,7 @@ set(${NAME}_PUBLIC_HEADERS
 
 # Dependencies
 set(${NAME}_LINK_LIBRARIES
-  braynsParameters braynsPluginAPI vmmlib ${DCMTK_LIBRARIES})
+  braynsParameters braynsPluginAPI ${DCMTK_LIBRARIES})
 
 # Library
 include_directories(${BRAYNS_INCLUDE_DIRS} ${HDF5_INCLUDE_DIRS} ${PROJECT_SOURCE_DIR})

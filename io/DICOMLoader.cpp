@@ -55,14 +55,6 @@ const brayns::Vector2ds controlPoints = {{0.0, 0.0},  {0.125, 0.0},
 
 } // namespace
 
-template <size_t M, typename T>
-std::string to_string(const vmml::vector<M, T>& vec)
-{
-    std::stringstream stream;
-    stream << vec;
-    return stream.str();
-}
-
 DICOMLoader::DICOMLoader(brayns::Scene& scene,
                          const brayns::GeometryParameters& geometryParameters,
                          brayns::PropertyMap&& loaderParams)
@@ -257,8 +249,8 @@ brayns::ModelDescriptorPtr DICOMLoader::_readFile(
         throw std::runtime_error("Failed to create model");
 
     auto volume = model->createSharedDataVolume(
-        {imageDescriptor.dimensions.x(), imageDescriptor.dimensions.y(), 1},
-        {imageDescriptor.pixelSpacing.x(), imageDescriptor.pixelSpacing.y(), 1},
+        {imageDescriptor.dimensions.x, imageDescriptor.dimensions.y, 1},
+        {imageDescriptor.pixelSpacing.x, imageDescriptor.pixelSpacing.y, 1},
         brayns::DataType::UINT16);
     if (!volume)
         throw std::runtime_error("Failed to create volume");
@@ -294,18 +286,18 @@ brayns::ModelDescriptorPtr DICOMLoader::_readDirectory(
         throw std::runtime_error("DICOM folder does not contain any images");
 
     // Dimensions
-    brayns::Vector3ui dimensions = {dicomImages[0].dimensions.x(),
-                                    dicomImages[0].dimensions.y(),
+    brayns::Vector3ui dimensions = {dicomImages[0].dimensions.x,
+                                    dicomImages[0].dimensions.y,
                                     (unsigned int)dicomImages.size()};
 
     // Element spacing (if single image, assume that z pixel spacing is the
     // same as y
-    brayns::Vector3f elementSpacing{dicomImages[0].pixelSpacing.x(),
-                                    dicomImages[0].pixelSpacing.y(),
-                                    dicomImages[0].pixelSpacing.y()};
+    brayns::Vector3f elementSpacing{dicomImages[0].pixelSpacing.x,
+                                    dicomImages[0].pixelSpacing.y,
+                                    dicomImages[0].pixelSpacing.y};
     if (dicomImages.size() > 1)
-        elementSpacing.z() =
-            dicomImages[1].position.z() - dicomImages[0].position.z();
+        elementSpacing.z =
+            dicomImages[1].position.z - dicomImages[0].position.z;
 
     // Load images into volume
     callback.updateProgress("Loading voxels ...", 0.5f);
@@ -321,8 +313,8 @@ brayns::ModelDescriptorPtr DICOMLoader::_readDirectory(
         volumeData.insert(volumeData.end(), dicomImage.buffer.begin(),
                           dicomImage.buffer.end());
         dataType = dicomImage.dataType;
-        dataRange.x() = std::min(dataRange.x(), dicomImage.dataRange.x());
-        dataRange.y() = std::max(dataRange.y(), dicomImage.dataRange.y());
+        dataRange.x = std::min(dataRange.x, dicomImage.dataRange.x);
+        dataRange.y = std::max(dataRange.y, dicomImage.dataRange.y);
     }
 
     // Create Model
@@ -389,20 +381,20 @@ brayns::ModelDescriptorPtr DICOMLoader::importFromFolder(
         case 0:
         {
             dataType = id.dataType;
-            dimensions = {id.dimensions.x(), id.dimensions.y(), id.nbFrames};
-            elementSpacing = {id.pixelSpacing.x(), id.pixelSpacing.y(), 1.f};
+            dimensions = {id.dimensions.x, id.dimensions.y, id.nbFrames};
+            elementSpacing = {id.pixelSpacing.x, id.pixelSpacing.y, 1.f};
             break;
         }
         case 1:
-            elementSpacing.z() = abs(imageDescriptors[i].position.z() -
-                                     imageDescriptors[i - 1].position.z());
+            elementSpacing.z = abs(imageDescriptors[i].position.z -
+                                   imageDescriptors[i - 1].position.z);
             break;
         default:
-            dimensions.z() += id.nbFrames;
+            dimensions.z += id.nbFrames;
         }
 
-        dataRange.x() = std::min(dataRange.x(), id.dataRange.x());
-        dataRange.y() = std::max(dataRange.y(), id.dataRange.y());
+        dataRange.x = std::min(dataRange.x, id.dataRange.x);
+        dataRange.y = std::max(dataRange.y, id.dataRange.y);
 
         ++i;
     }
@@ -446,8 +438,7 @@ brayns::ModelDescriptorPtr DICOMLoader::importFromFolder(
 
 brayns::ModelDescriptorPtr DICOMLoader::importFromFile(
     const std::string& path, const brayns::LoaderProgress& callback,
-    const brayns::PropertyMap& /*properties*/, const size_t /*index*/,
-    const size_t /*defaultMaterial*/) const
+    const brayns::PropertyMap& /*properties*/) const
 {
     PLUGIN_INFO << "Importing DICOM dataset from " << path << std::endl;
     const auto extension = boost::filesystem::extension(path);
@@ -457,8 +448,8 @@ brayns::ModelDescriptorPtr DICOMLoader::importFromFile(
 }
 
 brayns::ModelDescriptorPtr DICOMLoader::importFromBlob(
-    brayns::Blob&&, const brayns::LoaderProgress&, const brayns::PropertyMap&,
-    const size_t, const size_t) const
+    brayns::Blob&&, const brayns::LoaderProgress&,
+    const brayns::PropertyMap&) const
 {
     throw std::runtime_error("Loading DICOM from blob is not supported");
 }
@@ -491,7 +482,7 @@ std::string DICOMLoader::_dataTypeToString(
     case brayns::DataType::UINT8:
         return "Unsigned 8bit";
     case brayns::DataType::UINT16:
-        return "Unsigned 16bit";
+        return "Unsigned 16bit ";
     case brayns::DataType::UINT32:
         return "Unsigned 32bit";
     case brayns::DataType::INT8:

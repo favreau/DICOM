@@ -61,13 +61,11 @@ public:
 
     brayns::ModelDescriptorPtr importFromFile(
         const std::string& path, const brayns::LoaderProgress& callback,
-        const brayns::PropertyMap& properties, const size_t index = 0,
-        const size_t defaultMaterial = brayns::NO_MATERIAL) const final;
+        const brayns::PropertyMap& properties) const final;
 
     brayns::ModelDescriptorPtr importFromBlob(
         brayns::Blob&& blob, const brayns::LoaderProgress& callback,
-        const brayns::PropertyMap& properties, const size_t index = 0,
-        const size_t defaultMaterial = brayns::NO_MATERIAL) const final;
+        const brayns::PropertyMap& properties) const final;
 
     brayns::ModelDescriptorPtr importFromFolder(const std::string& path);
 
