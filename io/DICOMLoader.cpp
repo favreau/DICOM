@@ -315,7 +315,7 @@ brayns::ModelDescriptorPtr DICOMLoader::_readDirectory(
     brayns::Vector2f dataRange{std::numeric_limits<float>::max(),
                                std::numeric_limits<float>::min()};
 
-    std::vector<char> volumeData;
+    uint8_ts volumeData;
     for (const auto& dicomImage : dicomImages)
     {
         volumeData.insert(volumeData.end(), dicomImage.buffer.begin(),
@@ -412,7 +412,7 @@ brayns::ModelDescriptorPtr DICOMLoader::importFromFolder(
                 << dimensions << ", " << elementSpacing << ", " << dataRange
                 << std::endl;
 
-    std::vector<char> volumeData;
+    uint8_ts volumeData;
     for (const auto& id : imageDescriptors)
         volumeData.insert(volumeData.end(), id.buffer.begin(), id.buffer.end());
 

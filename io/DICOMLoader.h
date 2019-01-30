@@ -28,6 +28,8 @@
 
 #include <set>
 
+using uint8_ts = std::vector<uint8_t>;
+
 struct DICOMImageDescriptor
 {
     std::string path;
@@ -36,7 +38,7 @@ struct DICOMImageDescriptor
     brayns::Vector3f position{0, 0, 0};
     brayns::Vector2f pixelSpacing{1, 1};
     brayns::Vector2f dataRange;
-    std::vector<char> buffer;
+    uint8_ts buffer;
     uint16_t nbFrames;
 };
 using DICOMImageDescriptors = std::vector<DICOMImageDescriptor>;
