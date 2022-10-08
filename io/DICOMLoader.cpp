@@ -23,9 +23,9 @@
 #include "log.h"
 
 #include <brayns/common/utils/utils.h>
-#include <brayns/engine/Model.h>
-#include <brayns/engine/Scene.h>
-#include <brayns/engine/SharedDataVolume.h>
+#include <brayns/engineapi/Model.h>
+#include <brayns/engineapi/Scene.h>
+#include <brayns/engineapi/SharedDataVolume.h>
 
 #include <dcmtk/dcmdata/dcddirif.h>
 #include <dcmtk/dcmdata/dctk.h>

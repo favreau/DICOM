@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
 
-set(NAME BRAYNSDICOM)
-set(LIBRARY_NAME braynsDICOM)
+set(NAME DICOM)
+set(LIBRARY_NAME DICOM)
 project(${NAME} VERSION 0.1.0)
 set(${NAME}_VERSION_ABI 1)
 
